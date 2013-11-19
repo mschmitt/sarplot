@@ -1,38 +1,40 @@
 #!/bin/bash
 
-## sarplot.sh
-## Hereward Cooper - 14/10/2009-
-## James Hannah    - 14/10/2009-
+## sarplot.sh 
 ## A hack to plot various system resource information from sar using gnuplot
+##
+## Added interoperability and some cleanup by Martin Schmitt
+## Based on a script by Hereward Cooper and James Hannah
 
-# Begin new option parsing code...
 usage="Usage: $0 [-m METRIC] [-d DAY]"
-metric=""
-sadate=""
+metric="cpu"
+sadate=$(printf "%i" $(date +%e))
 while getopts ":wm:d:" options; do
   case $options in
-    m ) metric=$OPTARG;;
-    d ) sadate=$OPTARG
-     if [ -d /var/log/sa ]; then
-      saprefix="/var/log/sa/sa"
-     else
-      if [ -d /var/log/sysstat ]; then
-       saprefix="/var/log/sysstat/sa"
-      fi
-     fi;;
-    w ) FROMFIRST=true;;
-    : ) echo "Missing parameter to option: -$OPTARG"
-        echo $usage
-        exit 1;;
-    \? ) echo $usage
-         exit 1;;
-    * ) echo $usage
-          exit 1;;
+    m ) 
+	    metric=$OPTARG
+	    ;;
+    d ) 
+	    sadate=$OPTARG
+	    ;;
+    w ) 
+	    walk_history=true
+	    ;;
+    : ) 
+	    echo "Missing parameter to option: -$OPTARG"
+            echo $usage
+            exit 1
+	    ;;
+    \? ) 
+	    echo $usage
+            exit 1
+	    ;;
+    * ) 
+	    echo $usage
+            exit 1
+	    ;;
   esac
 done
-if [ "xxx${metric}yyy" == "xxxyyy" ]; then
-    metric="cpu"
-fi
 
 ## Start off doing some checks for required programs
 if [ ! -f /usr/bin/gnuplot ]
@@ -47,6 +49,42 @@ then
         exit 1;
 fi
 
+# Locate historical sysstat data
+if [ -d /var/log/sa ]
+then
+	saprefix="/var/log/sa/sa"
+elif [ -d /var/log/sysstat ]
+then
+	saprefix="/var/log/sysstat/sa"
+else
+	echo "WARNING: Historical sysstat data not locatable."
+fi
+
+# Detect version of sar
+sarversion=10
+found_version=$(sar -V 2>&1 | awk '/sysstat version/{printf "%i\n", $NF}') 
+case $found_version in 
+	10)
+		;;
+	7|9)
+		sarversion=$found_version
+		;;
+	*)
+		echo "WARNING: Sysstat major version is $found_version."
+		echo "WARNING: This script is untested with this version of sysstat."
+		echo "WARNING: Proceeding anyway, assuming version 10. Good luck!"
+		echo ""
+		;;
+esac
+
+# Check whether sadf needs the -T option for displaying 
+# seconds since the epoch:
+if [ $sarversion -ge 10 ]
+then
+	# This seems to be sadf >= 10.0
+	# Otherwise sadf <10.0 defaults to seconds display
+	sadf_seconds=-T
+fi
 
 #####################################################
 ## Next Define some of the graphs you want to plot ##
@@ -58,80 +96,116 @@ fi
 # Swap Usage
 if [[ $metric == "swap" ]]
 then
-        sar -r | grep swpused || echo "No Swap Detected"; exit 1
-        metric="-r"
-        field="kbbuffers"
+	# sar < 8  uses -r for swap (RHEL 5)
+	# sar >= 9 uses -S          (RHEL 6, Deb 6+7)
+	# sar == 8 no idea
+	# As I have no idea about sar ==8, I'll just try -S
+	# and see if it fails:
+	swapopt='-S'
+	sar -S >/dev/null 2>&1 || swapopt='-r'
+        sar $swapopt | grep swpused >/dev/null 2>&1 
+	if [ $? -eq 1 ]
+	then
+		echo "No Swap Detected"
+		exit 1
+	fi
+        saropt=$swapopt
+        field="%swpused"
         title="% Swap Usage"
 
 # 1 Minute Load Average
 elif [[ $metric == "load" ]]
 then
-        metric="-q"
-        field="ldavg-1"
-        title="1 Minute Load Average"
+        saropt="-q"
+        field="ldavg-15"
+        title="15 Minute Load Average"
 
 # Disk Read IO
 elif [[ $metric == "io" ]]
 then
-        metric="-b"
+        saropt="-b"
         field="rtps"
         title="Read Requests per Second"
 
 # Disk Write IO
 elif [[ $metric == "iow" ]]
 then
-        metric="-b"
+        saropt="-b"
         field="wtps"
         title="Write Requests per Second"
 
 # Network Inbound
 elif [[ $metric == "netin" ]]
 then
-        metric="-n DEV "
+        saropt="-n DEV "
         field="eth0.*rxbyt"
-        title="kB/s Recieved on eth0"
+        title="Byte/s Received on eth0"
+	# Never versions of sar output kbytes
+	if [ $sarversion -ge 9 ]
+	then
+		field="eth0.*rxkB"
+		title="kByte/s Received on eth0"
+	fi
 
+# Context Switches
 elif [[ $metric == "ctx" ]]
 then
-        metric="-w"
+        saropt="-w"
         field="cswch"
         title="Context switches/second"
 
+# IOWait
 elif [[ $metric == "iowait" ]]
 then
- metric="-u"
- field="iowait"
- title="Context switches/second"
+ 	saropt="-u"
+	field="iowait"
+	title="% CPU spent waiting for I/O"
 
 
 # Failback to CPU %idle if nothing defined
 elif [[ $metric == "cpu" || $# -eq 0 ]]
 then
-        metric="-u"
+        saropt="-u"
         field="%idle"
         title="CPU %Idle"
 else
-        echo "Invalid metric specified!"
+        echo "Invalid metric specified. Specify one metric of:"
+	echo ""
+	echo "cpu    CPU idle percentage"
+	echo "load   Load average"
+	echo "swap   Swap utilization"
+	echo "netin  Bytes or kilobytes received per second"
+	echo "ctx    Context switches per second"
+	echo "iowait % CPU spent waiting for I/O"
+	echo "io     I/O read requests per second"
+	echo "iow    I/O write requests per second"
+	echo ""
         exit 1
 fi
 
-#####################################
-## This is where the magic happens ##
-#####################################
+############################################################
+## This is where things usually start to go really wrong: ##
+############################################################
 
 TMPFILE=`mktemp /tmp/sarplot.XXXXXXXXXX`
 
-if [ "xxx$FROMSTARTyyy" != "xxxyyy" ]; then
+if [ ! -z $walk_history ]; then
+    # go back in history up to 7 days from specified startdate
     weekstart=$(($sadate-7))
     for d in `seq $weekstart $(($sadate-1))`; do
-        /usr/bin/sadf $saprefix$d -- $metric | awk "/$field/ {print \$3,\$6}" >> $TMPFILE
+	if [ ! -e $saprefix$d ]
+	then
+		# Skip silently if no sa file found
+		continue
+	fi
+        /usr/bin/sadf $sadf_seconds $saprefix$d -- $saropt | awk "/$field/ {print \$3,\$6}" >> $TMPFILE
     done
 fi
-/usr/bin/sadf $saprefix$sadate -- $metric | awk "/$field/ {print \$3,\$6}" >> $TMPFILE
+/usr/bin/sadf $sadf_seconds $saprefix$sadate -- $saropt | awk "/$field/ {print \$3,\$6}" >> $TMPFILE
 echo "set terminal dumb;
 set title '$title';
 set xdata time;
 set timefmt '%s';
-set xlabel 'Time';
-plot '$TMPFILE' using 1:2 with lines title '$title';" | gnuplot
+set format x \"%d.\n%Hh\";
+plot '$TMPFILE' using 1:2 with line title '';" | gnuplot
 rm -f $TMPFILE
