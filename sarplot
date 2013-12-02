@@ -6,19 +6,20 @@
 ## Added interoperability and some cleanup by Martin Schmitt
 ## Based on a script by Hereward Cooper and James Hannah
 
-usage="Usage: $0 [-m METRIC] [-d DAY]"
+usage="Usage: $0 [-m METRIC] [-d DAY] [-w]"
 metric="cpu"
-sadate=$(printf "%i" $(date +%e))
+sadate=$(printf "%.2i" $(date +%e))
 while getopts ":wm:d:" options; do
   case $options in
     m ) 
 	    metric=$OPTARG
 	    ;;
     d ) 
-	    sadate=$OPTARG
+	    sadate=$(printf "%.2i" $OPTARG)
 	    ;;
     w ) 
-	    walk_history=true
+	    # Walk 7 days back in history.
+	    walk_history=true 
 	    ;;
     : ) 
 	    echo "Missing parameter to option: -$OPTARG"
@@ -58,6 +59,13 @@ then
 	saprefix="/var/log/sysstat/sa"
 else
 	echo "WARNING: Historical sysstat data not locatable."
+fi
+
+# Check if I have an sa file for the requested $sadate
+if [ ! -e $saprefix$sadate ]
+then
+	echo "CRITICAL: No sa file for date: $sadate (Should have been: $saprefix$sadate)"
+	exit 1
 fi
 
 # Detect version of sar
@@ -189,19 +197,60 @@ fi
 
 TMPFILE=`mktemp /tmp/sarplot.XXXXXXXXXX`
 
+# This is the data for the specified startdate
+# Order of sadf output in the tempfile does not matter, 
+# as lines are indexed by the seconds column
+/usr/bin/sadf $sadf_seconds $saprefix$sadate -- $saropt \
+	| awk "/$field/ {print \$3,\$6}" >> $TMPFILE
+
 if [ ! -z $walk_history ]; then
-    # go back in history up to 7 days from specified startdate
-    weekstart=$(($sadate-7))
-    for d in `seq $weekstart $(($sadate-1))`; do
-	if [ ! -e $saprefix$d ]
-	then
-		# Skip silently if no sa file found
-		continue
-	fi
-        /usr/bin/sadf $sadf_seconds $saprefix$d -- $saropt | awk "/$field/ {print \$3,\$6}" >> $TMPFILE
-    done
+	# Go back in history up to 6 days before the specified startdate
+	# Break the while loop when $sa_seen is >=6 or when sa_tried >= 10
+	sa_seen=0
+	sa_tried=0
+	while true
+	do
+		# Step back one day in history
+		let sadate--
+		# Increment number of attempts
+		let sa_tried++
+		# Roll over backward to previous month if needed
+		if [ $sadate -lt 1 ]
+		then
+			sadate=31
+		fi
+		# Pad with zero again
+		# #0 removes padding zeroes on the input side, so the arg
+		# doesn't look as if it's octal.
+		# http://stackoverflow.com/a/8078505/263310
+		sadate=$(printf "%.2i" ${sadate#0})
+		if [ -e $saprefix$sadate ]
+		then
+			# A file exists
+			let sa_seen++
+			/usr/bin/sadf $sadf_seconds $saprefix$sadate -- $saropt \
+				| awk "/$field/ {print \$3,\$6}" >> $TMPFILE
+		else
+			# Skip if no sa file found
+			echo "INFO: $saprefix$sadate not found - Probably month with <31 days or too old."
+		fi
+		#echo seen=$sa_seen tried=$sa_tried last_seen=$sadate
+		# Break the loop if I've seen enough files
+		if [ $sa_seen -ge 6 ]
+		then
+			# Success
+			break
+		fi
+		# Break the loop if I've looked for too many files
+		if [ $sa_tried -ge 10 ]
+		then
+			echo "INFO: Giving up looking for older files."
+			break
+		fi
+	done
 fi
-/usr/bin/sadf $sadf_seconds $saprefix$sadate -- $saropt | awk "/$field/ {print \$3,\$6}" >> $TMPFILE
+
+# Now plot the data from the tempfile in gnuplot
 echo "set terminal dumb;
 set title '$title';
 set xdata time;
