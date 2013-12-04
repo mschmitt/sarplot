@@ -9,32 +9,33 @@
 usage="Usage: $0 [-m METRIC] [-d DAY] [-w]"
 metric="cpu"
 sadate=$(printf "%.2i" $(date +%e))
-while getopts ":wm:d:" options; do
-  case $options in
-    m ) 
-	    metric=$OPTARG
-	    ;;
-    d ) 
-	    sadate=$(printf "%.2i" $OPTARG)
-	    ;;
-    w ) 
-	    # Walk 7 days back in history.
-	    walk_history=true 
-	    ;;
-    : ) 
-	    echo "Missing parameter to option: -$OPTARG"
-            echo $usage
-            exit 1
-	    ;;
-    \? ) 
-	    echo $usage
-            exit 1
-	    ;;
-    * ) 
-	    echo $usage
-            exit 1
-	    ;;
-  esac
+while getopts ":wm:d:" options
+do
+	case $options in
+		m ) 
+			metric=$OPTARG
+		;;
+		d ) 
+			sadate=$(printf "%.2i" $OPTARG)
+		;;
+		w ) 
+			# Walk 7 days back in history.
+			walk_history=true 
+		;;
+		: ) 
+			echo "Missing parameter to option: -$OPTARG"
+			echo $usage
+			exit 1
+		;;
+		\? ) 
+			echo $usage
+			exit 1
+		;;
+		* ) 
+			echo $usage
+			exit 1
+		;;
+	esac
 done
 
 ## Start off doing some checks for required programs
@@ -203,7 +204,8 @@ TMPFILE=`mktemp /tmp/sarplot.XXXXXXXXXX`
 /usr/bin/sadf $sadf_seconds $saprefix$sadate -- $saropt \
 	| awk "/$field/ {print \$3,\$6}" >> $TMPFILE
 
-if [ ! -z $walk_history ]; then
+if [ ! -z $walk_history ]
+then
 	# Go back in history up to 6 days before the specified startdate
 	# Break the while loop when $sa_seen is >=6 or when sa_tried >= 10
 	sa_seen=0
@@ -256,5 +258,5 @@ set title '$title';
 set xdata time;
 set timefmt '%s';
 set format x \"%d.\n%Hh\";
-plot '$TMPFILE' using 1:2 with line title '';" | gnuplot
+plot '$TMPFILE' using 1:2 with line notitle;" | gnuplot
 rm -f $TMPFILE
