@@ -6,7 +6,7 @@
 ## Added interoperability and some cleanup by Martin Schmitt
 ## Based on a script by Hereward Cooper and James Hannah
 
-usage="Usage: $0 [-m METRIC] [-d DAY] [-w]"
+usage="Usage: $0 [-m METRIC|?] [-d DAY] [-w]"
 metric="cpu"
 sadate=$(printf "%.2i" $(date +%e))
 while getopts ":wm:d:" options
@@ -179,7 +179,7 @@ then
         field="%idle"
         title="CPU %Idle"
 else
-        echo "Invalid metric specified. Specify one metric of:"
+        echo "Specify one metric of:"
 	echo ""
 	echo "cpu    CPU idle percentage"
 	echo "load   Load average"
