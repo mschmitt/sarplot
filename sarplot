@@ -16,7 +16,8 @@ do
 			metric=$OPTARG
 		;;
 		d ) 
-			sadate=$(printf "%.2i" $OPTARG)
+			sadate=$(printf "%.2i" ${OPTARG#0}) 
+			#  ${OPTARG#0} removes trailing zero (see below).
 		;;
 		w ) 
 			# Walk 7 days back in history.
@@ -213,6 +214,8 @@ then
 	while true
 	do
 		# Step back one day in history
+		# Remove trailing zero to avoid recognition as octal number
+		sadate=${sadate#0}      # (see below)
 		let sadate--
 		# Increment number of attempts
 		let sa_tried++
@@ -253,10 +256,12 @@ then
 fi
 
 # Now plot the data from the tempfile in gnuplot
-echo "set terminal dumb;
+cat <<End | gnuplot
+set terminal dumb;
 set title '$title';
 set xdata time;
 set timefmt '%s';
-set format x \"%d.\n%Hh\";
-plot '$TMPFILE' using 1:2 with line notitle;" | gnuplot
+set format x "%d.\n%Hh";
+plot '$TMPFILE' using 1:2 with line notitle;
+End
 rm -f $TMPFILE
