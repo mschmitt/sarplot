@@ -149,12 +149,25 @@ elif [[ $metric == "netin" ]]
 then
         saropt="-n DEV "
         field="eth0.*rxbyt"
-        title="Byte/s Received on eth0"
+        title="Byte/s received on eth0"
 	# Never versions of sar output kbytes
 	if [ $sarversion -ge 9 ]
 	then
 		field="eth0.*rxkB"
-		title="kByte/s Received on eth0"
+		title="kByte/s received on eth0"
+	fi
+
+# Network Outbound
+elif [[ $metric == "netout" ]]
+then
+        saropt="-n DEV "
+        field="eth0.*txbyt"
+        title="Byte/s sent on eth0"
+	# Never versions of sar output kbytes
+	if [ $sarversion -ge 9 ]
+	then
+		field="eth0.*txkB"
+		title="kByte/s sent on eth0"
 	fi
 
 # Context Switches
@@ -185,6 +198,7 @@ else
 	echo "load   Load average"
 	echo "swap   Swap utilization"
 	echo "netin  Bytes or kilobytes received per second"
+	echo "netout Bytes or kilobytes sent per second"
 	echo "ctx    Context switches per second"
 	echo "iowait % CPU spent waiting for I/O"
 	echo "io     I/O read requests per second"
