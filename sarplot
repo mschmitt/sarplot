@@ -71,10 +71,11 @@ then
 fi
 
 # Detect version of sar
-sarversion=10
+sarversion=11
 found_version=$(sar -V 2>&1 | awk '/sysstat version/{printf "%i\n", $NF}') 
+full_version=$(sar -V 2>&1 | awk '/sysstat version/{printf "%s\n", $NF}') 
 case $found_version in 
-	10)
+	10|11)
 		;;
 	7|9)
 		sarversion=$found_version
@@ -82,7 +83,7 @@ case $found_version in
 	*)
 		echo "WARNING: Sysstat major version is $found_version."
 		echo "WARNING: This script is untested with this version of sysstat."
-		echo "WARNING: Proceeding anyway, assuming version 10. Good luck!"
+		echo "WARNING: Proceeding anyway, assuming version 11. Good luck!"
 		echo ""
 		;;
 esac
@@ -91,9 +92,13 @@ esac
 # seconds since the epoch:
 if [ $sarversion -ge 10 ]
 then
-	# This seems to be sadf >= 10.0
-	# Otherwise sadf <10.0 defaults to seconds display
-	sadf_seconds=-T
+	# sadf <10.0 seems to default to epoch seconds in output
+	# sadf 10.0 introduced -T, sadf 10.1.1 renamed -T to -U. U MAD BRO?
+	sadf_seconds=-U
+	if [[ $full_version =~ ^10\.0 ]]
+	then
+		sadf_seconds=-T
+	fi
 fi
 
 #####################################################
